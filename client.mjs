@@ -57,21 +57,25 @@ function printResult(result) {
     if (result.isError) {
         console.log('❌ Error returned from server:');
     }
-    
+
+    const print = item => {
+        if (item.type === 'text') {
+            console.log('📝 Text response:');
+            console.log('-------------------------------------------');
+            console.log(item.text);
+            console.log('-------------------------------------------');
+        } else {
+            console.log(`📄 ${item.type} response:`);
+            console.log(item);
+        }
+    };
+
     if (Array.isArray(result.content)) {
-        result.content.forEach(item => {
-            if (item.type === 'text') {
-                console.log('📝 Text response:');
-                console.log('-------------------------------------------');
-                console.log(item.text);
-                console.log('-------------------------------------------');
-            } else {
-                console.log(`📄 ${item.type} response:`);
-                console.log(item);
-            }
-        });
-    } else {
-        console.log('⚠️ Unexpected response format:', result);
+        result.content.forEach(print);
+    } else if (Array.isArray(result.messages)) { // handle prompt responses
+        result.messages.forEach(m => print(m.content));
+    }else {
+        console.log('⚠️ Unexpected response format:', JSON.stringify(result));
     }
 }
 
@@ -79,10 +83,10 @@ function printResult(result) {
 function enhanceClientMethods() {
     // Enhance readResource method
     const originalReadResource = client.readResource.bind(client);
-    client.readResource = async function(uri) {
-        console.log(`📤 Sending request: readResource ${uri}`);
+    client.readResource = async function(req) {
+        console.log(`📤 Sending request: readResource ${req.uri}`);
         try {
-            const result = await originalReadResource(uri);
+            const result = await originalReadResource(req);
             debugLog(`📥 Received response: success`, result);
             return result;
         } catch (err) {
@@ -93,11 +97,11 @@ function enhanceClientMethods() {
     
     // Enhance callTool method
     const originalCallTool = client.callTool.bind(client);
-    client.callTool = async function(name, args) {
-        console.log(`📤 Sending request: callTool ${name}`);
+    client.callTool = async function(req, args) {
+        console.log(`📤 Sending request: callTool ${req.name}`);
         debugLog(`   Arguments:`, args);
         try {
-            const result = await originalCallTool(name, args);
+            const result = await originalCallTool(req, args);
             debugLog(`📥 Received response: success`, result);
             return result;
         } catch (err) {
@@ -150,11 +154,11 @@ function enhanceClientMethods() {
     
     // Enhance getPrompt method
     const originalGetPrompt = client.getPrompt.bind(client);
-    client.getPrompt = async function(name, args) {
+    client.getPrompt = async function(name, args, opts) {
         console.log(`📤 Sending request: getPrompt ${name}`);
         debugLog(`   Arguments:`, args);
         try {
-            const result = await originalGetPrompt(name, args);
+            const result = await originalGetPrompt(args, opts);
             debugLog(`📥 Received response: success`, result);
             return result;
         } catch (err) {
@@ -250,7 +254,7 @@ async function listResources() {
     try {
         console.log('\n🔍 Listing available resources...');
         
-        const resources = await client.listResources();
+        const { resources } = await client.listResources();
         
         console.log('\n✅ Resources retrieved successfully!');
         console.log('\n📋 Available Resources:');
@@ -261,7 +265,7 @@ async function listResources() {
         } else {
             resources.forEach(resource => {
                 console.log(`📑 ${resource.name}: ${resource.description || 'No description'}`);
-                console.log(`   Pattern: ${resource.uriPattern}`);
+                console.log(`   Pattern: ${resource.uris}`);
                 console.log();
             });
         }
@@ -277,7 +281,7 @@ async function listTools() {
     try {
         console.log('\n🔍 Listing available tools...');
         
-        const tools = await client.listTools();
+        const { tools } = await client.listTools();
         
         console.log('\n✅ Tools retrieved successfully!');
         console.log('\n📋 Available Tools:');
@@ -303,7 +307,7 @@ async function listPrompts() {
     try {
         console.log('\n🔍 Listing available prompts...');
         
-        const prompts = await client.listPrompts();
+        const { prompts } = await client.listPrompts();
         
         console.log('\n✅ Prompts retrieved successfully!');
         console.log('\n📋 Available Prompts:');
@@ -329,7 +333,7 @@ async function readSchema() {
     try {
         console.log('\n🔍 Reading database schema...');
         
-        const schema = await client.readResource('schema://database');
+        const schema = await client.readResource({ uri: 'schema://database' });
         
         console.log('\n✅ Database schema retrieved successfully!');
         console.log('\n📋 Database Schema:');
@@ -354,7 +358,7 @@ async function readTablesList() {
         console.log('📤 Sending request: readResource tables://list');
         
         try {
-            const tables = await client.readResource('tables://list');
+            const tables = await client.readResource({ uri: 'tables://list' });
             
             console.log('\n✅ Database tables list retrieved successfully!');
             console.log('\n📋 Database Tables:');
@@ -395,21 +399,32 @@ async function generateQuery(description, tables = []) {
     try {
         console.log('\n🔍 Generating SQL query...');
         console.log(`Description: ${description}`);
+
+        let tablesCsv = '';
         if (tables.length > 0) {
-            console.log(`Tables: ${tables.join(', ')}`);
+            tablesCsv = tables.join(',')
+            console.log(`Tables: ${tablesCsv}`);
         }
         
         // Get prompt from server
         const prompt = await client.getPrompt('generate-query', {
-            description,
-            tables
+            name: 'generate-query',
+            arguments: {
+                description,
+                tables: tablesCsv
+            }
         });
-        
+
+        console.log('\n📒 Obtained prompt from server for SQL query generation')
+                
+        // ???
+        // there is no connection between this client and an LLM
+        //
         // Execute prompt with LLM
-        const result = await client.executePrompt(prompt);
+        // const result = await client.executePrompt(prompt);
         
-        console.log('\n✅ SQL query generated successfully!');
-        printResult(result);
+        // console.log('\n✅ SQL query generated successfully!');
+        printResult(prompt);
     } catch (err) {
         console.error('❌ Error generating query:', err);
     }
@@ -421,7 +436,12 @@ async function executeQuery(sql) {
         console.log('\n🔍 Executing SQL query...');
         console.log(`Query: ${sql}`);
         
-        const result = await client.callTool('execute-query', { sql });
+        const result = await client.callTool({ 
+            name: 'execute_query',
+            arguments: {
+                sql
+            }
+        });
         
         console.log('\n✅ SQL query executed successfully!');
         printResult(result);
@@ -435,7 +455,12 @@ async function getTableDetails(tableName) {
     try {
         console.log(`\n🔍 Getting details for table: ${tableName}...`);
         
-        const result = await client.callTool('table-details', { tableName });
+        const result = await client.callTool({ 
+            name: 'table_details',
+            arguments: { 
+                tableName 
+            }
+        });
         
         console.log('\n✅ Table details retrieved successfully!');
         printResult(result);

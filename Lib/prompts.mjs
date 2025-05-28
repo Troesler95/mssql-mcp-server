@@ -26,13 +26,14 @@ function registerGenerateQueryPrompt(server) {
         "generate-query",
         { 
             description: z.string().min(1, "Description cannot be empty"),
-            tables: z.array(z.string()).optional(),
+            // prompt arguments are defined as a zod record which only supports string
+            tables: z.string().optional(),
             limit: z.number().optional().default(100)
         },
         ({ description, tables, limit = 100 }) => {
             // Build a prompt that helps generate a SQL query
             const tablesContext = tables && tables.length > 0 
-                ? `The query should involve these tables: ${tables.join(', ')}.` 
+                ? `The query should involve these tables: ${tables.replaceAll(',', ', ')}.` 
                 : 'Use appropriate tables from the database.';
             
             return {
