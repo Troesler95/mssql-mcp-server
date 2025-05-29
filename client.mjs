@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import util from 'util';
 import { spawn } from 'child_process';
+import { object } from "zod";
 
 // Load environment variables
 dotenv.config();
